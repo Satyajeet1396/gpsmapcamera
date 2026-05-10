@@ -582,4 +582,3 @@ if files and process:
             file_name=
             "gps_map_camera_outputs.zip"
         )
-```
