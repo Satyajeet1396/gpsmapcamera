@@ -1,5 +1,5 @@
 streamlit
-PIL
+Pillow
 geopy
 piexif
 staticmap
@@ -7,3 +7,4 @@ datetime
 tempfile
 requests
 io
+python-dotenv
