@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 from geopy.geocoders import Nominatim
