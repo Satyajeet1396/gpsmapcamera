@@ -22,7 +22,7 @@ st.set_page_config(
 st.title("📍 GPS Map Camera – PRO Clone")
 
 # ---------------------------------------------------
-# FONT SYSTEM (Single-file cloud compatible)
+# FONT SYSTEM
 # ---------------------------------------------------
 
 def get_font(size=24, bold=False):
@@ -46,12 +46,8 @@ def get_font(size=24, bold=False):
 
     return ImageFont.load_default()
 
-title_font = get_font(34, bold=True)
-info_font = get_font(24)
-small_font = get_font(20)
-
 # ---------------------------------------------------
-# TEXT SHADOW
+# SHADOW TEXT
 # ---------------------------------------------------
 
 def draw_shadow_text(draw,
@@ -62,15 +58,17 @@ def draw_shadow_text(draw,
 
     x, y = position
 
+    shadow_offset = max(2, font.size // 18)
+
     # Shadow
     draw.text(
-        (x + 2, y + 2),
+        (x + shadow_offset, y + shadow_offset),
         text,
         font=font,
         fill="black"
     )
 
-    # Main Text
+    # Main text
     draw.text(
         (x, y),
         text,
@@ -79,7 +77,7 @@ def draw_shadow_text(draw,
     )
 
 # ---------------------------------------------------
-# UTILITIES
+# GPS UTILITIES
 # ---------------------------------------------------
 
 def dms_to_deg(dms):
@@ -121,8 +119,8 @@ def extract_gps(image):
 def create_map(lat, lon):
 
     m = StaticMap(
+        500,
         320,
-        220,
         url_template=
         "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"
     )
@@ -142,7 +140,7 @@ def create_google_satellite_map(
     lon,
     api_key,
     zoom=17,
-    size="320x220"
+    size="500x320"
 ):
 
     url = (
@@ -182,13 +180,13 @@ st.subheader("📍 Location Settings")
 
 manual_lat = st.number_input(
     "Manual Latitude (fallback)",
-    16.676566,
+    value=16.676566,
     format="%.6f"
 )
 
 manual_lon = st.number_input(
     "Manual Longitude (fallback)",
-    74.255245,
+    value=74.255245,
     format="%.6f"
 )
 
@@ -228,36 +226,35 @@ with col2:
 
     st.write("Custom Time")
 
-    t_col1, t_col2, t_col3 = st.columns([1, 1, 1])
+    t1, t2, t3 = st.columns(3)
 
-    with t_col1:
+    with t1:
         hr = st.selectbox(
             "Hr",
             [f"{i:02d}" for i in range(1, 13)],
             index=11
         )
 
-    with t_col2:
+    with t2:
         mn = st.selectbox(
             "Min",
             [f"{i:02d}" for i in range(60)],
             index=0
         )
 
-    with t_col3:
+    with t3:
         ampm = st.selectbox(
             "AM/PM",
-            ["AM", "PM"],
-            index=0
+            ["AM", "PM"]
         )
 
-    hr_24 = int(hr) % 12
+    hr24 = int(hr) % 12
 
     if ampm == "PM":
-        hr_24 += 12
+        hr24 += 12
 
     custom_time = time(
-        hr_24,
+        hr24,
         int(mn)
     )
 
@@ -282,7 +279,7 @@ google_api_key = st.text_input(
 )
 
 # ---------------------------------------------------
-# PROCESS BUTTON
+# PROCESS
 # ---------------------------------------------------
 
 process = st.button(
@@ -290,7 +287,7 @@ process = st.button(
 )
 
 # ---------------------------------------------------
-# PROCESSING
+# MAIN PROCESSING
 # ---------------------------------------------------
 
 if files and process:
@@ -321,8 +318,32 @@ if files and process:
 
             draw = ImageDraw.Draw(img)
 
+            img_width = img.width
+            img_height = img.height
+
             # ----------------------------------------
-            # EXTRACT GPS
+            # ADAPTIVE FONT SIZES
+            # ----------------------------------------
+
+            title_size = max(42, img_width // 28)
+            info_size = max(30, img_width // 45)
+            small_size = max(24, img_width // 55)
+
+            title_font = get_font(
+                title_size,
+                bold=True
+            )
+
+            info_font = get_font(
+                info_size
+            )
+
+            small_font = get_font(
+                small_size
+            )
+
+            # ----------------------------------------
+            # GPS EXTRACTION
             # ----------------------------------------
 
             lat, lon = extract_gps(img)
@@ -331,7 +352,7 @@ if files and process:
                 lat, lon = manual_lat, manual_lon
 
             # ----------------------------------------
-            # SIMULATE MOVEMENT
+            # SIMULATED MOVEMENT
             # ----------------------------------------
 
             if simulate_movement:
@@ -406,7 +427,7 @@ if files and process:
                     )
 
             # ----------------------------------------
-            # MAP IMAGE
+            # MAP GENERATION
             # ----------------------------------------
 
             if (
@@ -414,23 +435,21 @@ if files and process:
                 == "Google Satellite (API Key)"
             ):
 
-                if google_api_key:
-
-                    map_img = (
-                        create_google_satellite_map(
-                            lat,
-                            lon,
-                            google_api_key
-                        )
-                    )
-
-                else:
+                if not google_api_key:
 
                     st.error(
                         "Google API key required"
                     )
 
                     st.stop()
+
+                map_img = (
+                    create_google_satellite_map(
+                        lat,
+                        lon,
+                        google_api_key
+                    )
+                )
 
             else:
 
@@ -440,37 +459,51 @@ if files and process:
                 )
 
             # ----------------------------------------
-            # OVERLAY PANEL
+            # ADAPTIVE PANEL
             # ----------------------------------------
 
-            panel_height = 270
+            panel_height = int(
+                img_height * 0.22
+            )
 
             overlay = Image.new(
                 "RGBA",
-                (img.width, panel_height),
+                (img_width, panel_height),
                 (0, 0, 0, 190)
             )
 
             img.paste(
                 overlay,
-                (0, img.height - panel_height),
+                (0, img_height - panel_height),
                 overlay
             )
 
             # ----------------------------------------
-            # MAP POSITION
+            # MAP SIZE
             # ----------------------------------------
+
+            map_w = int(img_width * 0.25)
+            map_h = int(panel_height * 0.78)
+
+            map_img = map_img.resize(
+                (map_w, map_h)
+            )
+
+            map_x = int(img_width * 0.02)
+            map_y = img_height - panel_height + int(panel_height * 0.08)
 
             img.paste(
                 map_img,
-                (20, img.height - panel_height + 25)
+                (map_x, map_y)
             )
 
             # ----------------------------------------
-            # TEXT POSITIONS
+            # TEXT POSITION
             # ----------------------------------------
 
-            y0 = img.height - panel_height + 35
+            text_x = map_x + map_w + int(img_width * 0.03)
+
+            y0 = img_height - panel_height + int(panel_height * 0.10)
 
             # ----------------------------------------
             # LOCATION TEXT
@@ -478,7 +511,7 @@ if files and process:
 
             draw_shadow_text(
                 draw,
-                (410, y0),
+                (text_x, y0),
                 final_location_string,
                 title_font
             )
@@ -489,14 +522,20 @@ if files and process:
 
             draw_shadow_text(
                 draw,
-                (410, y0 + 58),
+                (
+                    text_x,
+                    y0 + int(info_size * 1.8)
+                ),
                 f"Lat {lat:.6f}°",
                 info_font
             )
 
             draw_shadow_text(
                 draw,
-                (410, y0 + 92),
+                (
+                    text_x,
+                    y0 + int(info_size * 3.0)
+                ),
                 f"Long {lon:.6f}°",
                 info_font
             )
@@ -524,7 +563,10 @@ if files and process:
 
             draw_shadow_text(
                 draw,
-                (410, y0 + 132),
+                (
+                    text_x,
+                    y0 + int(info_size * 4.5)
+                ),
                 dt.strftime(
                     "%A, %d/%m/%Y %I:%M %p GMT +05:30"
                 ),
@@ -532,7 +574,7 @@ if files and process:
             )
 
             # ----------------------------------------
-            # SAVE IMAGE
+            # SAVE OUTPUT
             # ----------------------------------------
 
             out = tempfile.NamedTemporaryFile(
@@ -560,7 +602,6 @@ if files and process:
 
                 st.image(
                     img,
-                    caption="Preview of first image",
                     use_container_width=True
                 )
 
