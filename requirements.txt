@@ -1,0 +1,9 @@
+streamlit
+PIL
+geopy
+piexif
+staticmap
+datetime
+tempfile
+requests
+io
