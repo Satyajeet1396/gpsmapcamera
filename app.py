@@ -1,46 +1,124 @@
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 from geopy.geocoders import Nominatim
-import piexif
-from staticmap import StaticMap, CircleMarker
-from datetime import datetime, timedelta, time
-import tempfile, zipfile, os
-import requests
+from datetime import datetime
 from io import BytesIO
+import piexif
+import requests
+import tempfile
+import zipfile
+import os
 
-st.set_page_config(page_title="GPS Map Camera PRO", layout="wide")
-st.title("📍 GPS Map Camera – PRO Clone")
+# ---------------------------------------------------
+# PAGE CONFIG
+# ---------------------------------------------------
 
-# ------------------------------
-# Utilities
-# ------------------------------
+st.set_page_config(
+    page_title="GPS Map Camera",
+    layout="wide"
+)
+
+st.title("📍 GPS Map Camera PRO")
+
+# ---------------------------------------------------
+# FONT LOADER
+# ---------------------------------------------------
+
+def get_font(size=24, bold=False):
+
+    possible_fonts = []
+
+    if bold:
+        possible_fonts = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf"
+        ]
+    else:
+        possible_fonts = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"
+        ]
+
+    for path in possible_fonts:
+        if os.path.exists(path):
+            return ImageFont.truetype(path, size)
+
+    return ImageFont.load_default()
+
+title_font = get_font(34, bold=True)
+info_font = get_font(24)
+small_font = get_font(20)
+
+# ---------------------------------------------------
+# TEXT DRAWING
+# ---------------------------------------------------
+
+def draw_shadow_text(draw,
+                     position,
+                     text,
+                     font,
+                     fill="white"):
+
+    x, y = position
+
+    # shadow
+    draw.text(
+        (x+2, y+2),
+        text,
+        font=font,
+        fill="black"
+    )
+
+    # main text
+    draw.text(
+        (x, y),
+        text,
+        font=font,
+        fill=fill
+    )
+
+# ---------------------------------------------------
+# EXIF GPS EXTRACTION
+# ---------------------------------------------------
+
 def dms_to_deg(dms):
-    d, m, s = dms
-    return d[0]/d[1] + m[0]/m[1]/60 + s[0]/s[1]/3600
+
+    d = dms[0][0] / dms[0][1]
+    m = dms[1][0] / dms[1][1]
+    s = dms[2][0] / dms[2][1]
+
+    return d + (m / 60) + (s / 3600)
 
 def extract_gps(image):
+
     try:
-        exif_dict = piexif.load(image.info["exif"])
-        gps = exif_dict["GPS"]
+        exif_data = piexif.load(image.info["exif"])
+
+        gps = exif_data["GPS"]
+
         lat = dms_to_deg(gps[2])
+        lon = dms_to_deg(gps[4])
+
         if gps[1] == b'S':
             lat = -lat
-        lon = dms_to_deg(gps[4])
+
         if gps[3] == b'W':
             lon = -lon
+
         return lat, lon
+
     except:
         return None, None
 
-def create_map(lat, lon):
-    m = StaticMap(320, 220, url_template=
-        "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png")
-    m.add_marker(CircleMarker((lon, lat), "red", 12))
-    return m.render().convert("RGB")
+# ---------------------------------------------------
+# GOOGLE SATELLITE MAP
+# ---------------------------------------------------
 
-def create_google_satellite_map(lat, lon, api_key,
-                                zoom=17,
-                                size="320x220"):
+def create_google_map(lat,
+                      lon,
+                      api_key,
+                      zoom=17,
+                      size="400x250"):
 
     url = (
         "https://maps.googleapis.com/maps/api/staticmap"
@@ -55,160 +133,246 @@ def create_google_satellite_map(lat, lon, api_key,
     response = requests.get(url)
 
     if response.status_code != 200:
-        raise Exception("Google Maps API error")
+        raise Exception("Google Maps API Error")
 
     return Image.open(BytesIO(response.content)).convert("RGB")
 
-# ------------------------------
-# UI
-# ------------------------------
-files = st.file_uploader("Upload Images", type=["jpg", "jpeg", "png"],
-                          accept_multiple_files=True)
+# ---------------------------------------------------
+# SIDEBAR
+# ---------------------------------------------------
 
-st.subheader("📍 Location Settings")
-manual_lat = st.number_input("Manual Latitude (fallback)", 16.676566, format="%.6f")
-manual_lon = st.number_input("Manual Longitude (fallback)", 74.255245, format="%.6f")
-simulate_movement = st.checkbox("Simulate Photographer Movement (slightly offsets location per image)")
+st.sidebar.header("⚙ Settings")
 
-use_custom_location = st.checkbox("Override Auto-Location Name")
-custom_location_text = st.text_input("Custom Location Text", "My Custom Site, Project ABC")
-
-st.subheader("🕒 Date & Time Settings")
-use_custom_time = st.checkbox("Use Custom Date & Time")
-col1, col2 = st.columns(2)
-with col1:
-    custom_date = st.date_input("Custom Date", "today")
-with col2:
-    st.write("Custom Time")
-    t_col1, t_col2, t_col3 = st.columns([1, 1, 1])
-    with t_col1:
-        hr = st.selectbox("Hr", [f"{i:02d}" for i in range(1, 13)], index=11)
-    with t_col2:
-        mn = st.selectbox("Min", [f"{i:02d}" for i in range(60)], index=0)
-    with t_col3:
-        ampm = st.selectbox("AM/PM", ["AM", "PM"], index=0)
-        
-    hr_24 = int(hr) % 12
-    if ampm == "PM":
-        hr_24 += 12
-    custom_time = time(hr_24, int(mn))
-
-st.subheader("🗺 Map Settings")
-map_mode = st.radio("Map Style", ["Google Satellite (API Key)", "Offline / OpenStreetMap"], index=1)
-google_api_key = st.text_input(
+google_api_key = st.sidebar.text_input(
     "Google Maps API Key",
     type="password"
 )
 
-process = st.button("🚀 Process Images")
+manual_lat = st.sidebar.number_input(
+    "Manual Latitude",
+    value=16.676566,
+    format="%.6f"
+)
 
-# ------------------------------
-# Processing
-# ------------------------------
-if files and process:
+manual_lon = st.sidebar.number_input(
+    "Manual Longitude",
+    value=74.255245,
+    format="%.6f"
+)
 
-    geolocator = Nominatim(user_agent="gps_camera_pro")
-    zip_path = tempfile.NamedTemporaryFile(delete=False, suffix=".zip").name
+zoom = st.sidebar.slider(
+    "Map Zoom",
+    10,
+    22,
+    17
+)
 
-    with zipfile.ZipFile(zip_path, "w") as zipf:
+# ---------------------------------------------------
+# FILE UPLOAD
+# ---------------------------------------------------
 
-        for idx, file in enumerate(files):
+uploaded_files = st.file_uploader(
+    "Upload Images",
+    type=["jpg", "jpeg", "png"],
+    accept_multiple_files=True
+)
 
-            img = Image.open(file).convert("RGB")
-            draw = ImageDraw.Draw(img)
+# ---------------------------------------------------
+# PROCESS BUTTON
+# ---------------------------------------------------
 
-            # EXIF GPS
-            lat, lon = extract_gps(img)
+if uploaded_files and st.button("🚀 Generate GPS Photos"):
+
+    if not google_api_key:
+        st.error("Please enter Google Maps API Key")
+        st.stop()
+
+    geolocator = Nominatim(
+        user_agent="gps_map_camera"
+    )
+
+    zip_temp = tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=".zip"
+    )
+
+    with zipfile.ZipFile(zip_temp.name, "w") as zipf:
+
+        progress = st.progress(0)
+
+        for idx, uploaded_file in enumerate(uploaded_files):
+
+            image = Image.open(uploaded_file).convert("RGB")
+
+            draw = ImageDraw.Draw(image)
+
+            # ----------------------------------------
+            # GPS Extraction
+            # ----------------------------------------
+
+            lat, lon = extract_gps(image)
+
             if lat is None:
-                lat, lon = manual_lat, manual_lon
-            
-            # Simulate Movement
-            if simulate_movement:
-                lat += (idx * 0.00015)
-                lon += (idx * 0.00015)
+                lat = manual_lat
+                lon = manual_lon
 
-            if use_custom_location and custom_location_text.strip():
-                final_location_string = custom_location_text.strip()
-            else:
-                location = geolocator.reverse((lat, lon), zoom=18)
-                addr = location.raw.get("address", {})
-                city = addr.get("city", addr.get("town", addr.get("village", "")))
-                state = addr.get("state", "")
-                country = addr.get("country", "")
-                parts = [p for p in (city, state, country) if p]
-                final_location_string = ", ".join(parts) if parts else "Unknown Location"
+            # ----------------------------------------
+            # Reverse Geocode
+            # ----------------------------------------
 
-            # Map
-            if map_mode == "Google Satellite (API Key)":
-                if google_api_key:
-                    map_img = create_google_satellite_map(
-                        lat, lon, google_api_key
+            try:
+
+                location = geolocator.reverse(
+                    (lat, lon),
+                    zoom=18
+                )
+
+                address = location.raw.get(
+                    "address",
+                    {}
+                )
+
+                city = address.get(
+                    "city",
+                    address.get(
+                        "town",
+                        address.get(
+                            "village",
+                            ""
+                        )
                     )
-                else:
-                    st.error("Google API key required for satellite view")
-                    st.stop()
-            else:
-                map_img = create_map(lat, lon)
+                )
 
-            # Overlay
-            h = 270
-            overlay = Image.new("RGBA", (img.width, h), (0, 0, 0, 190))
-            img.paste(overlay, (0, img.height - h), overlay)
-            img.paste(map_img, (20, img.height - h + 25))
+                state = address.get(
+                    "state",
+                    ""
+                )
 
-            # Fonts
-            try:
-                font = ImageFont.truetype("fonts/Roboto-Regular.ttf", 30)
-                font_s = ImageFont.truetype("fonts/Roboto-Regular.ttf", 22)
-            except IOError:
-                font = ImageFont.load_default()
-                font_s = ImageFont.load_default()
+                country = address.get(
+                    "country",
+                    ""
+                )
 
-            # Icons
-            y0 = img.height - h + 40
-            try:
-                if os.path.exists("icons/pin.png"):
-                    pin = Image.open("icons/pin.png").resize((32, 32))
-                    img.paste(pin, (370, y0), pin if pin.mode == 'RGBA' else None)
-                if os.path.exists("icons/india.png"):
-                    flag = Image.open("icons/india.png").resize((40, 26))
-                    img.paste(flag, (370, y0 + 45), flag if flag.mode == 'RGBA' else None)
-            except Exception as e:
-                pass
+            except:
 
-            # Text
-            draw.text((410, y0),
-                      final_location_string,
-                      fill="white", font=font)
+                city = "Unknown"
+                state = ""
+                country = ""
 
-            draw.text((410, y0 + 50),
-                      f"Lat {lat:.6f}°  Long {lon:.6f}°",
-                      fill="white", font=font_s)
+            # ----------------------------------------
+            # MAP
+            # ----------------------------------------
 
-            # Determine Date and Time
-            if use_custom_time:
-                dt = datetime.combine(custom_date, custom_time)
-                if simulate_movement:
-                    dt += timedelta(minutes=idx * 2) # Advance time slightly per image
-            else:
-                dt = datetime.now()
+            map_img = create_google_map(
+                lat,
+                lon,
+                google_api_key,
+                zoom=zoom
+            )
 
-            draw.text((410, y0 + 90),
-                      dt.strftime("%A, %d/%m/%Y %I:%M %p GMT +05:30"),
-                      fill="white", font=font_s)
+            # ----------------------------------------
+            # OVERLAY PANEL
+            # ----------------------------------------
 
-            # Save
-            out = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-            img.save(out.name)
-            zipf.write(out.name, f"gps_{idx+1}.jpg")
-            
-            # Show preview for the first image
-            if idx == 0:
-                st.subheader("🖼 Preview")
-                st.image(img, caption="Preview of first image", use_container_width=True)
+            panel_height = 280
+
+            overlay = Image.new(
+                "RGBA",
+                (image.width, panel_height),
+                (0, 0, 0, 190)
+            )
+
+            image.paste(
+                overlay,
+                (0, image.height - panel_height),
+                overlay
+            )
+
+            # ----------------------------------------
+            # PASTE MAP
+            # ----------------------------------------
+
+            image.paste(
+                map_img,
+                (20, image.height - panel_height + 15)
+            )
+
+            # ----------------------------------------
+            # TEXT
+            # ----------------------------------------
+
+            y0 = image.height - panel_height + 25
+
+            timestamp = datetime.now().strftime(
+                "%A, %d/%m/%Y %I:%M %p"
+            )
+
+            draw_shadow_text(
+                draw,
+                (450, y0),
+                f"{city}, {state}, {country}",
+                title_font
+            )
+
+            draw_shadow_text(
+                draw,
+                (450, y0 + 60),
+                f"Lat {lat:.6f}°",
+                info_font
+            )
+
+            draw_shadow_text(
+                draw,
+                (450, y0 + 95),
+                f"Long {lon:.6f}°",
+                info_font
+            )
+
+            draw_shadow_text(
+                draw,
+                (450, y0 + 135),
+                timestamp,
+                small_font
+            )
+
+            # ----------------------------------------
+            # SAVE OUTPUT
+            # ----------------------------------------
+
+            out_temp = tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=".jpg"
+            )
+
+            image.save(
+                out_temp.name,
+                quality=95
+            )
+
+            zipf.write(
+                out_temp.name,
+                f"gps_photo_{idx+1}.jpg"
+            )
+
+            st.image(
+                image,
+                caption=f"Processed Image {idx+1}",
+                use_container_width=True
+            )
+
+            progress.progress(
+                (idx + 1) / len(uploaded_files)
+            )
+
+    # ---------------------------------------------------
+    # DOWNLOAD
+    # ---------------------------------------------------
 
     st.success("✅ Processing Complete")
-    with open(zip_path, "rb") as f:
-        st.download_button("⬇ Download ZIP",
-                           f,
-                           file_name="gps_map_camera_outputs.zip")
+
+    st.download_button(
+        "⬇ Download ZIP",
+        data=open(zip_temp.name, "rb"),
+        file_name="gps_map_camera_outputs.zip",
+        mime="application/zip"
+    )
